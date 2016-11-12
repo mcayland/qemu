@@ -34,6 +34,7 @@
 #include "qemu/cutils.h"
 #include "qemu/log.h"
 #include "qemu/typedefs.h"
+#include "qemu/error-report.h"
 #include "qapi/error.h"
 
 /* debug screamer */
@@ -57,7 +58,6 @@
 #define CODEC_STAT_MASK_VALID   (0x1 << 22) 
 
 /* Audio */
-#define SCREAMER_SAMPLE_RATE 44100
 static const char *s_spk = "screamer";
 
 static void pmac_transfer(DBDMA_io *io)
@@ -74,7 +74,6 @@ static void pmac_transfer(DBDMA_io *io)
     io->len = 0;
     
     /* Finish */
-    qemu_irq_raise(s->irq);    
     io->dma_end(io);
 }
 
@@ -82,7 +81,7 @@ static void pmac_screamer_tx(DBDMA_io *io)
 {
     ScreamerState *s = io->opaque;
     
-    printf("TX yeah!\n");
+    printf("DMA TX!\n");
     
     if (s->bpos + io->len > SCREAMER_BUFFER_SIZE) {
         /* Not enough space in the buffer, so defer IRQ */
@@ -121,7 +120,7 @@ static void screamerspk_callback(void *opaque, int avail)
     if (s->bpos) {
         if (s->ppos < s->bpos) {
 	    n = MIN(s->bpos - s->ppos, (unsigned int)avail);
-	    printf("########### SPEAKER WRITE! %d / %d - %d\n", s->ppos, s->bpos, n);
+	    printf("########### AUDIO WRITE! %d / %d - %d\n", s->ppos, s->bpos, n);
             len = AUD_write(s->voice, &s->buf[s->ppos], n);
             s->ppos += len;
 	    return;
@@ -136,6 +135,19 @@ static void screamerspk_callback(void *opaque, int avail)
     }
 }
 
+static void screamer_update_rate(ScreamerState *s)
+{
+    struct audsettings as = { s->rate, 2, AUDIO_FORMAT_U16, 0 };
+
+    s->voice = AUD_open_out(s->be, s->voice, s_spk, s, screamerspk_callback, &as);
+    if (!s->voice) {
+        error_report("Could not open voice");
+        exit(1);
+    }
+
+    AUD_set_active_out(s->voice, true);
+}
+
 static void screamer_reset(DeviceState *dev)
 {
     ScreamerState *s = SCREAMER(dev);
@@ -143,28 +155,60 @@ static void screamer_reset(DeviceState *dev)
     memset(s->regs, 0, sizeof(s->regs));
     memset(s->codec_ctrl_regs, 0, sizeof(s->codec_ctrl_regs));
 
+    s->rate = 44100;
     s->bpos = 0;
     s->ppos = 0;
+
+    screamer_update_rate(s);
 
     return;
 }
 
 static void screamer_realizefn(DeviceState *dev, Error **errp)
 {
-    struct audsettings as = {SCREAMER_SAMPLE_RATE, 2, AUDIO_FORMAT_S16, 0};
     ScreamerState *s = SCREAMER(dev);
 
     if (!AUD_backend_check(&s->be, errp)) {
         return;
     }
+}
 
-    s->voice = AUD_open_out(s->be, s->voice, s_spk, s, screamerspk_callback, &as);
-    if (!s->voice) {
-        error_setg(errp, "Could not open voice");
-        return;
+static void screamer_control_write(ScreamerState *s, uint32_t val)
+{
+    printf("%s: val %" PRId32 "\n", __func__, val);
+    
+    s->regs[0] = val;
+    
+    /* Basic rate selection */
+    switch ((val & 0x700) >> 8) {
+    case 0x00:
+        s->rate = 44100;
+        break;
+    case 0x1:
+        s->rate = 29400;
+        break;
+    case 0x2:
+        s->rate = 22050;
+        break;
+    case 0x3:
+        s->rate = 17640;
+        break;
+    case 0x4:
+        s->rate = 14700;
+        break;
+    case 0x5:
+        s->rate = 11025;
+        break;
+    case 0x6:
+        s->rate = 8820;
+        break;
+    case 0x7:
+        s->rate = 7350;
+        break;
     }
     
-    AUD_set_active_out(s->voice, true);
+    printf("basic rate: %d\n", s->rate);
+    screamer_update_rate(s);
 }
 
 static void screamer_codec_write(ScreamerState *s, hwaddr addr,
@@ -173,6 +217,37 @@ static void screamer_codec_write(ScreamerState *s, hwaddr addr,
     SCREAMER_DPRINTF("%s: addr " HWADDR_PRIx " val %" PRIx64 "\n", __func__, addr, val);
 
     s->codec_ctrl_regs[addr] = val;
+    
+    /* Extra rate selection */
+    switch ((val & 0x38) >> 3) {
+    case 0x0:
+        s->rate = 48000;
+        break;
+    case 0x1:
+        s->rate = 32000;
+        break;
+    case 0x2:
+        s->rate = 24000;
+        break;
+    case 0x3:
+        s->rate = 19200;
+        break;
+    case 0x4:
+        s->rate = 16000;
+        break;
+    case 0x5:
+        s->rate = 12000;
+        break;
+    case 0x6:
+        s->rate = 9600;
+        break;
+    case 0x7:
+        s->rate = 8000;
+        break;
+    }
+    
+    printf("extra rate: %d\n", s->rate);
+    screamer_update_rate(s);
 }
 
 static uint64_t screamer_read(void *opaque, hwaddr addr, unsigned size)
@@ -221,7 +296,7 @@ static void screamer_write(void *opaque, hwaddr addr,
 
     switch (addr) {
     case SND_CTRL_REG:
-        s->regs[addr] = val & 0xffffffff;
+        screamer_control_write(s, val & 0xffffffff);
         break;
     case CODEC_CTRL_REG:
         s->regs[addr] = val & 0xffffffff;
