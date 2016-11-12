@@ -88,6 +88,7 @@ struct MacIOState {
     PMUState pmu;
     DBDMAState dbdma;
     ESCCState escc;
+    ScreamerState screamer;
     uint64_t frequency;
 };
 
