@@ -36,6 +36,7 @@
 #include "hw/nvram/mac_nvram.h"
 #include "hw/ppc/mac_dbdma.h"
 #include "hw/ppc/openpic.h"
+#include "hw/audio/screamer.h"
 #include "qom/object.h"
 
 /* Old World IRQs */
@@ -112,6 +113,7 @@ struct MacIOState {
     PMUState pmu;
     DBDMAState dbdma;
     ESCCState escc;
+    ScreamerState screamer;
     uint64_t frequency;
 };
 

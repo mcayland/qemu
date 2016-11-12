@@ -24,6 +24,7 @@
 
 #include "qemu/osdep.h"
 #include "hw/hw.h"
+#include "qemu/audio.h"
 #include "hw/audio/screamer.h"
 #include "hw/qdev-properties.h"
 #include "qemu/timer.h"
@@ -32,7 +33,7 @@
 #include "qemu/log.h"
 
 /* debug screamer */
-//#define DEBUG_SCREAMER
+#define DEBUG_SCREAMER
 
 #ifdef DEBUG_SCREAMER
 #define SCREAMER_DPRINTF(fmt, ...)                                  \
@@ -54,12 +55,19 @@ static void screamer_realizefn(DeviceState *dev, Error **errp)
 
 static uint64_t screamer_read(void *opaque, hwaddr addr, unsigned size)
 {
-    return 0;
+    uint32_t val;
+
+    val = 0;
+    SCREAMER_DPRINTF("%s: addr " HWADDR_FMT_plx " -> %x\n", __func__, addr, val);
+
+    return val;
 }
 
 static void screamer_write(void *opaque, hwaddr addr,
                            uint64_t val, unsigned size)
 {
+    SCREAMER_DPRINTF("%s: addr " HWADDR_FMT_plx " val %" PRIx64 "\n", __func__, addr, val);
+
     return;
 }
 
@@ -74,10 +82,14 @@ static void screamer_initfn(Object *obj)
     SysBusDevice *d = SYS_BUS_DEVICE(obj);
     ScreamerState *s = SCREAMER(obj);
 
-    memory_region_init_io(&s->mem, obj, &screamer_ops, s, "screamer", 0x2000);
+    memory_region_init_io(&s->mem, obj, &screamer_ops, s, "screamer", 0x1000);
     sysbus_init_mmio(d, &s->mem);
     sysbus_init_irq(d, &s->irq);
 }
+
+static const Property screamer_properties[] = {
+    DEFINE_AUDIO_PROPERTIES(ScreamerState, be),
+};
 
 static void screamer_class_init(ObjectClass *oc, const void *data)
 {
@@ -85,6 +97,7 @@ static void screamer_class_init(ObjectClass *oc, const void *data)
 
     dc->realize = screamer_realizefn;
     dc->legacy_reset = screamer_reset;
+    device_class_set_props(dc, screamer_properties);
 }
 
 static const TypeInfo screamer_type_info = {

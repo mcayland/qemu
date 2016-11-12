@@ -102,6 +102,13 @@ static bool macio_common_realize(PCIDevice *d, Error **errp)
     memory_region_add_subregion(&s->bar, 0x08000,
                                 sysbus_mmio_get_region(sbd, 0));
 
+    if (!qdev_realize(DEVICE(&s->screamer), BUS(&s->macio_bus), errp)) {
+        return false;
+    }
+    sbd = SYS_BUS_DEVICE(&s->screamer);
+    memory_region_add_subregion(&s->bar, 0x14000,
+                                sysbus_mmio_get_region(sbd, 0));
+
     qdev_prop_set_uint32(DEVICE(&s->escc), "disabled", 0);
     qdev_prop_set_uint32(DEVICE(&s->escc), "frequency", ESCC_CLOCK);
     qdev_prop_set_uint32(DEVICE(&s->escc), "it_shift", 4);
@@ -110,7 +117,6 @@ static bool macio_common_realize(PCIDevice *d, Error **errp)
     if (!qdev_realize(DEVICE(&s->escc), BUS(&s->macio_bus), errp)) {
         return false;
     }
-
     macio_bar_setup(s);
     pci_register_bar(d, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->bar);
 
@@ -373,6 +379,8 @@ static void macio_instance_init(Object *obj)
     object_initialize_child(obj, "dbdma", &s->dbdma, TYPE_MAC_DBDMA);
 
     object_initialize_child(obj, "escc", &s->escc, TYPE_ESCC);
+
+    object_initialize_child(obj, "screamer", &s->screamer, TYPE_SCREAMER);
 }
 
 static const VMStateDescription vmstate_macio_oldworld = {
