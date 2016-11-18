@@ -49,6 +49,7 @@
 #define OLDWORLD_IDE1_DMA_IRQ  0x3
 #define OLDWORLD_SCREAMER_TX_IRQ  0x11
 #define OLDWORLD_SCREAMER_TX_DMA_IRQ 0x08
+#define OLDWORLD_SCREAMER_RX_IRQ  0x09
 
 /* New World IRQs */
 #define NEWWORLD_CUDA_IRQ      0x19
@@ -63,6 +64,7 @@
 #define NEWWORLD_EXTING_GPIO9  0x37
 #define NEWWORLD_SCREAMER_IRQ  0x18
 #define NEWWORLD_SCREAMER_DMA_IRQ 0x09
+#define NEWWORLD_SCREAMER_RX_IRQ 0x0a
 
 /* MacIO virtual bus */
 #define TYPE_MACIO_BUS "macio-bus"
@@ -146,6 +148,7 @@ struct NewWorldMacIOState {
     bool has_pmu;
     bool has_adb;
     OpenPICState pic;
+
     MACIOIDEState ide[2];
     MacIOGPIOState gpio;
 };

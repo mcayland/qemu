@@ -202,7 +202,8 @@ static void macio_oldworld_realize(PCIDevice *d, Error **errp)
     sbd = SYS_BUS_DEVICE(&s->screamer);
     sysbus_connect_irq(sbd, 0, qdev_get_gpio_in(pic_dev, OLDWORLD_SCREAMER_TX_IRQ));
     sysbus_connect_irq(sbd, 1, qdev_get_gpio_in(pic_dev, OLDWORLD_SCREAMER_TX_DMA_IRQ));
-    macio_screamer_register_dma(SCREAMER(sbd), &s->dbdma, 0x10);
+    sysbus_connect_irq(sbd, 1, qdev_get_gpio_in(pic_dev, OLDWORLD_SCREAMER_RX_IRQ));
+    macio_screamer_register_dma(SCREAMER(sbd), &s->dbdma, 0x10, 0x12);
 }
 
 static void macio_init_ide(MacIOState *s, MACIOIDEState *ide, int index)
@@ -361,7 +362,8 @@ static void macio_newworld_realize(PCIDevice *d, Error **errp)
     sbd = SYS_BUS_DEVICE(&s->screamer);
     sysbus_connect_irq(sbd, 0, qdev_get_gpio_in(pic_dev, NEWWORLD_SCREAMER_IRQ));
     sysbus_connect_irq(sbd, 1, qdev_get_gpio_in(pic_dev, NEWWORLD_SCREAMER_DMA_IRQ));
-    macio_screamer_register_dma(SCREAMER(sbd), &s->dbdma, 0x10);
+    sysbus_connect_irq(sbd, 2, qdev_get_gpio_in(pic_dev, NEWWORLD_SCREAMER_RX_IRQ));
+    macio_screamer_register_dma(SCREAMER(sbd), &s->dbdma, 0x10, 0x12);
 }
 
 static void macio_newworld_init(Object *obj)

@@ -44,6 +44,7 @@ struct ScreamerState {
     qemu_irq irq;
     void *dbdma;
     qemu_irq dma_tx_irq;
+    qemu_irq dma_rx_irq;
 
     AudioBackend *be;
     SWVoiceOut *voice;
@@ -54,9 +55,9 @@ struct ScreamerState {
     DBDMA_io io;
 
     uint32_t regs[6];
-    uint32_t codec_ctrl_regs[7];
+    uint32_t codec_ctrl_regs[8];
 };
 
-void macio_screamer_register_dma(ScreamerState *s, void *dbdma, int txchannel);
+void macio_screamer_register_dma(ScreamerState *s, void *dbdma, int txchannel, int rxchannel);
 
 #endif
