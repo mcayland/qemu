@@ -272,6 +272,12 @@ static void handleAnyDeviceErrors(Error * err)
     }
 }
 
+/* Name for the normal window */
+static NSString *normalWindowName(void) {
+    return qemu_name ? [NSString stringWithFormat:@"QEMU %s", qemu_name] : @"QEMU";
+}
+
+
 /*
  ------------------------------------------------------
     QemuCocoaView
@@ -354,6 +360,7 @@ QemuCocoaView *cocoaView;
 {
     return YES;
 }
+
 
 - (BOOL) screenContainsPoint:(NSPoint) p
 {
@@ -516,7 +523,6 @@ QemuCocoaView *cocoaView;
      */
     bool isResize = (w != screen.width || h != screen.height || cdx == 0.0);
 
-    int oldh = screen.height;
     if (isResize) {
         // Resize before we trigger the redraw, or we'll redraw at the wrong size
         COCOA_DEBUG("switchSurface: new size %d x %d\n", w, h);
@@ -539,17 +545,45 @@ QemuCocoaView *cocoaView;
     pixman_image = image;
     dataProviderRef = CGDataProviderCreateWithData(NULL, pixman_image_get_data(image), w * 4 * h, NULL);
 
-    // update windows
     if (isFullscreen) {
         [[fullScreenWindow contentView] setFrame:[[NSScreen mainScreen] frame]];
-        [normalWindow setFrame:NSMakeRect([normalWindow frame].origin.x, [normalWindow frame].origin.y - h + oldh, w, h + [normalWindow frame].size.height - oldh) display:NO animate:NO];
     } else {
-        if (qemu_name)
-            [normalWindow setTitle:[NSString stringWithFormat:@"QEMU %s", qemu_name]];
-        [normalWindow setFrame:NSMakeRect([normalWindow frame].origin.x, [normalWindow frame].origin.y - h + oldh, w, h + [normalWindow frame].size.height - oldh) display:YES animate:NO];
+        [self updateWindowFrameForWidth:w height:h isResize:isResize];
+        [normalWindow setTitle:normalWindowName()];
     }
+}
 
-    if (isResize) {
+
+/* Key to use for saving/restoring the window position */
+- (NSString*) windowPositionKey {
+    return [NSString stringWithFormat: @"Position %@", normalWindowName()];
+}
+
+/* Store the normal window position in the user defaults. */
+- (void) saveWindowPosition {
+    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    NSPoint position = [normalWindow contentRectForFrameRect: [normalWindow frame]].origin;
+    NSArray* value = @[@(position.x), @(position.y)];
+    [defaults setObject:value forKey: [self windowPositionKey]];
+}
+
+/* Update size of the normal window, keeping the origin constant if the user has positioned it */
+- (void) updateWindowFrameForWidth:(CGFloat)width height:(CGFloat)height isResize:(BOOL)isResize {
+    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    NSArray* value = [defaults arrayForKey: [self windowPositionKey]];
+    BOOL gotOrigin = [value count] == 2;
+    
+    NSRect contentFrame = [normalWindow contentRectForFrameRect: [normalWindow frame]];
+    contentFrame.size = NSMakeSize(width, height);
+    if (gotOrigin) {
+        // restore window origin if it was saved previously
+        contentFrame.origin = NSMakePoint([[value objectAtIndex:0] doubleValue], [[value objectAtIndex:1] doubleValue]);
+    }
+    NSRect windowFrame = [normalWindow frameRectForContentRect: contentFrame];
+    [normalWindow setFrame:windowFrame display:!isFullscreen animate:NO];
+    
+    if (isResize && !gotOrigin) {
+        // if we've no saved origin, center the window
         [normalWindow center];
     }
 }
@@ -953,10 +987,7 @@ QemuCocoaView *cocoaView;
     COCOA_DEBUG("QemuCocoaView: grabMouse\n");
 
     if (!isFullscreen) {
-        if (qemu_name)
-            [normalWindow setTitle:[NSString stringWithFormat:@"QEMU %s - (Press ctrl + alt + g to release Mouse)", qemu_name]];
-        else
-            [normalWindow setTitle:@"QEMU - (Press ctrl + alt + g to release Mouse)"];
+        [normalWindow setTitle:[NSString stringWithFormat:@"%@ - (Press ctrl + alt + g to release Mouse)", normalWindowName() ]];
     }
     [self hideCursor];
     if (!isAbsoluteEnabled) {
@@ -971,10 +1002,7 @@ QemuCocoaView *cocoaView;
     COCOA_DEBUG("QemuCocoaView: ungrabMouse\n");
 
     if (!isFullscreen) {
-        if (qemu_name)
-            [normalWindow setTitle:[NSString stringWithFormat:@"QEMU %s", qemu_name]];
-        else
-            [normalWindow setTitle:@"QEMU"];
+        [normalWindow setTitle:normalWindowName()];
     }
     [self unhideCursor];
     if (isMouseDeassociated) {
@@ -1054,14 +1082,16 @@ QemuCocoaView *cocoaView;
     if (self) {
 
         // create a view and add it to the window
-        cocoaView = [[QemuCocoaView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+        NSRect frame = NSMakeRect(0.0, 0.0, 640.0, 480.0);
+        cocoaView = [[QemuCocoaView alloc] initWithFrame:frame];
         if(!cocoaView) {
             fprintf(stderr, "(cocoa) can't create a view\n");
             exit(1);
         }
 
         // create a window
-        normalWindow = [[NSWindow alloc] initWithContentRect:[cocoaView frame]
+        frame.origin = NSMakePoint(256.0, 256.0);
+        normalWindow = [[NSWindow alloc] initWithContentRect:frame
             styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskClosable
             backing:NSBackingStoreBuffered defer:NO];
         if(!normalWindow) {
@@ -1069,11 +1099,12 @@ QemuCocoaView *cocoaView;
             exit(1);
         }
         [normalWindow setAcceptsMouseMovedEvents:YES];
-        [normalWindow setTitle:@"QEMU"];
+        [normalWindow setTitle:normalWindowName()];
         [normalWindow setContentView:cocoaView];
         [normalWindow makeKeyAndOrderFront:self];
         [normalWindow center];
         [normalWindow setDelegate: self];
+
         stretch_video = false;
 
         /* Used for displaying pause on the screen */
@@ -1145,6 +1176,11 @@ QemuCocoaView *cocoaView;
      * closing of this window.
      */
     return NO;
+}
+
+- (void) windowDidMove:(id)sender
+{
+    [cocoaView saveWindowPosition];
 }
 
 /* Called when QEMU goes into the background */
@@ -1479,7 +1515,7 @@ QemuCocoaView *cocoaView;
     });
     COCOA_DEBUG("cpu throttling at %d%c\n", cpu_throttle_get_percentage(), '%');
 }
-
+         
 @end
 
 @interface QemuApplication : NSApplication
