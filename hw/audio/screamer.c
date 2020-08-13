@@ -99,7 +99,21 @@ static void pmac_screamer_tx(DBDMA_io *io)
 
 static void pmac_screamer_tx_flush(DBDMA_io *io)
 {
+    DBDMA_channel *ch = io->channel;
+    dbdma_cmd *current = &ch->current;
+    uint16_t cmd;
+
     SCREAMER_DPRINTF("DMA TX flush!\n");
+
+    cmd = le16_to_cpu(current->command) & COMMAND_MASK;
+    if (cmd == OUTPUT_MORE || cmd == OUTPUT_LAST ||
+        cmd == INPUT_MORE || cmd == INPUT_LAST) {
+        current->xfer_status = cpu_to_le16(ch->regs[DBDMA_STATUS]);
+        current->res_count = cpu_to_le16(io->len);
+
+        dma_memory_write(&address_space_memory, ch->regs[DBDMA_CMDPTR_LO],
+                         &ch->current, sizeof(dbdma_cmd));
+    }
 }
 
 static void pmac_screamer_rx(DBDMA_io *io)
@@ -119,7 +133,21 @@ static void pmac_screamer_rx(DBDMA_io *io)
 
 static void pmac_screamer_rx_flush(DBDMA_io *io)
 {
+    DBDMA_channel *ch = io->channel;
+    dbdma_cmd *current = &ch->current;
+    uint16_t cmd;
+
     SCREAMER_DPRINTF("DMA RX flush!\n");
+
+    cmd = le16_to_cpu(current->command) & COMMAND_MASK;
+    if (cmd == OUTPUT_MORE || cmd == OUTPUT_LAST ||
+        cmd == INPUT_MORE || cmd == INPUT_LAST) {
+        current->xfer_status = cpu_to_le16(ch->regs[DBDMA_STATUS]);
+        current->res_count = cpu_to_le16(io->len);
+
+        dma_memory_write(&address_space_memory, ch->regs[DBDMA_CMDPTR_LO],
+                         &ch->current, sizeof(dbdma_cmd));
+    }
 }
 
 void macio_screamer_register_dma(ScreamerState *s, void *dbdma, int txchannel, int rxchannel)
