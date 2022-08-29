@@ -35,6 +35,7 @@ typedef enum  {
     MACFB_DISPLAY_PAL2_OVERSCAN = 12,
     MACFB_DISPLAY_VGA = 13,
     MACFB_DISPLAY_SVGA = 14,
+    MACFB_DISPLAY_UNPLUGGED = 15,
 } MacfbDisplayType;
 
 typedef struct MacFbMode {

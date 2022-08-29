@@ -98,6 +98,7 @@ static MacFbSense macfb_sense_table[] = {
     { MACFB_DISPLAY_PAL2_OVERSCAN, 0x7, 0x6 },
     { MACFB_DISPLAY_VGA, 0x7, 0x5 },
     { MACFB_DISPLAY_SVGA, 0x7, 0x5 },
+    { MACFB_DISPLAY_UNPLUGGED, 0x7, 0x7 },
 };
 
 static MacFbMode macfb_mode_table[] = {
@@ -426,6 +427,9 @@ static MacFbMode *macfb_find_mode(MacfbDisplayType display_type,
     MacFbMode *macfb_mode;
     int i;
 
+    if (display_type == MACFB_DISPLAY_UNPLUGGED)
+        return &macfb_mode_table[0];
+
     for (i = 0; i < ARRAY_SIZE(macfb_mode_table); i++) {
         macfb_mode = &macfb_mode_table[i];
 
@@ -458,7 +462,11 @@ static gchar *macfb_mode_list(void)
 static void macfb_update_display(void *opaque)
 {
     MacfbState *s = opaque;
-    DisplaySurface *surface = qemu_console_surface(s->con);
+    DisplaySurface *surface;
+
+    if (s->con == NULL) return;
+
+    surface = qemu_console_surface(s->con);
 
     qemu_flush_coalesced_mmio_buffer();
 
@@ -651,6 +659,8 @@ static bool macfb_common_realize(DeviceState *dev, MacfbState *s, Error **errp)
         list = macfb_mode_list();
         error_append_hint(errp, "Available modes:\n%s", list);
         g_free(list);
+        error_append_hint(errp, "You may also try the option: "
+                          "-Mq800,fb=qemu\n");
 
         return false;
     }
@@ -663,13 +673,17 @@ static bool macfb_common_realize(DeviceState *dev, MacfbState *s, Error **errp)
     s->regs[DAFB_MODE_CTRL1 >> 2] = s->mode->mode_ctrl1;
     s->regs[DAFB_MODE_CTRL2 >> 2] = s->mode->mode_ctrl2;
 
-    s->con = graphic_console_init(dev, 0, &macfb_ops, s);
-    surface = qemu_console_surface(s->con);
-
-    if (surface_bits_per_pixel(surface) != 32) {
-        error_setg(errp, "unknown host depth %d",
-                   surface_bits_per_pixel(surface));
-        return false;
+    if (s->type == MACFB_DISPLAY_UNPLUGGED)
+        s->con = NULL;
+    else
+    {
+        s->con = graphic_console_init(dev, 0, &macfb_ops, s);
+        surface = qemu_console_surface(s->con);
+        if (surface_bits_per_pixel(surface) != 32) {
+            error_setg(errp, "unknown host depth %d",
+                       surface_bits_per_pixel(surface));
+            return false;
+        }
     }
 
     memory_region_init_io(&s->mem_ctrl, OBJECT(dev), &macfb_ctrl_ops, s,

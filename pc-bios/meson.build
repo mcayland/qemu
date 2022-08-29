@@ -84,6 +84,7 @@ blobs = [
   'vof.bin',
   'vof-nvram.bin',
   'Quadra800ROM.elf',
+  'mac_qfb.rom',
 ]
 
 if get_option('install_blobs')

@@ -18,6 +18,7 @@ config Q800
     select MAC_VIA
     select NUBUS
     select MACFB
+    select MAC_QFB
     select SWIM
     select ESCC
     select ESP

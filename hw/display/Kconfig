@@ -134,3 +134,8 @@ config MACFB
     bool
     select FRAMEBUFFER
     depends on NUBUS
+
+config MAC_QFB
+    bool
+    select FRAMEBUFFER
+    depends on NUBUS

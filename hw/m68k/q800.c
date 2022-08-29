@@ -45,6 +45,7 @@
 #include "hw/audio/asc.h"
 #include "hw/nubus/mac-nubus-bridge.h"
 #include "hw/display/macfb.h"
+#include "hw/display/mac_qfb.h"
 #include "hw/block/swim.h"
 #include "net/net.h"
 #include "qapi/error.h"
@@ -760,17 +761,31 @@ static void q800_machine_init(MachineState *machine)
 
     dev = qdev_new(TYPE_NUBUS_MACFB);
     qdev_prop_set_uint32(dev, "slot", 9);
-    qdev_prop_set_uint32(dev, "width", graphic_width);
-    qdev_prop_set_uint32(dev, "height", graphic_height);
     qdev_prop_set_uint8(dev, "depth", graphic_depth);
-    if (graphic_width == 1152 && graphic_height == 870) {
-        qdev_prop_set_uint8(dev, "display", MACFB_DISPLAY_APPLE_21_COLOR);
+    if (m->unplug_dafb) {
+        qdev_prop_set_uint32(dev, "width", 640);
+        qdev_prop_set_uint32(dev, "height", 480);
+        qdev_prop_set_uint8(dev, "display", MACFB_DISPLAY_UNPLUGGED);
     } else {
-        qdev_prop_set_uint8(dev, "display", MACFB_DISPLAY_VGA);
+        qdev_prop_set_uint32(dev, "width", graphic_width);
+        qdev_prop_set_uint32(dev, "height", graphic_height);
+        if (graphic_width == 1152 && graphic_height == 870) {
+            qdev_prop_set_uint8(dev, "display", MACFB_DISPLAY_APPLE_21_COLOR);
+        } else {
+            qdev_prop_set_uint8(dev, "display", MACFB_DISPLAY_VGA);
+        }
     }
     qdev_realize_and_unref(dev, BUS(nubus), &error_fatal);
 
     macfb_mode = (NUBUS_MACFB(dev)->macfb).mode;
+
+    if (m->add_qfb) {
+        dev = qdev_new(TYPE_NUBUS_QFB);
+        qdev_prop_set_uint32(dev, "width", graphic_width);
+        qdev_prop_set_uint32(dev, "height", graphic_height);
+        qdev_prop_set_uint8(dev, "depth", graphic_depth);
+        qdev_realize_and_unref(dev, BUS(nubus), &error_fatal);
+    }
 
     cs = CPU(m->cpu);
     if (linux_boot) {
@@ -901,12 +916,55 @@ static void q800_set_easc(Object *obj, bool value, Error **errp)
     ms->easc = value;
 }
 
+static char *q800_get_fb(Object *obj, Error **errp)
+{
+    Q800MachineState *ms = Q800_MACHINE(obj);
+
+    if (ms->unplug_dafb) {
+        if (ms->add_qfb) return g_strdup("qemu");
+        else return g_strdup("none");
+    }
+    else {
+        if (ms->add_qfb) return g_strdup("dual");
+        else return g_strdup("mac");
+    }
+}
+
+static void q800_set_fb(Object *obj, const char *value, Error **errp)
+{
+    Q800MachineState *ms = Q800_MACHINE(obj);
+
+    if (!strcmp(value, "none"))
+    { ms->unplug_dafb = true; ms->add_qfb = false; return; }
+    if (!strcmp(value, "mac"))
+    { ms->unplug_dafb = false; ms->add_qfb = false; return; }
+    if (!strcmp(value, "qemu"))
+    { ms->unplug_dafb = true; ms->add_qfb = true; return; }
+    if (!strcmp(value, "dual"))
+    { ms->unplug_dafb = false; ms->add_qfb = true; return; }
+
+    error_setg(errp, "Invalid fb value");
+    error_append_hint(errp, "Valid values are mac, qemu, none, dual");
+}
+
 static void q800_init(Object *obj)
 {
     Q800MachineState *ms = Q800_MACHINE(obj);
 
     /* Default to EASC */
     ms->easc = true;
+
+    /* Framebuffer configuration */
+    ms->add_qfb = false;
+    ms->unplug_dafb = false;
+    object_property_add_str(obj, "fb", q800_get_fb, q800_set_fb);
+    object_property_set_description(obj, "fb",
+                                    "Set which style of framebuffer to use. "
+                                    "Good choices are \"mac\", \"qemu\", "
+                                    " or \"none\". You can always add "
+                                    "additional qemu framebuffers with e.g. "
+                                    "\"-device nubus-qfb,width=640,"
+                                    "height=480\".");
 }
 
 static GlobalProperty hw_compat_q800[] = {

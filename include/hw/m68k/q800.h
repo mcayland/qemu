@@ -42,6 +42,9 @@ struct Q800MachineState {
     MemoryRegion macio_alias;
     MemoryRegion machine_id;
     MemoryRegion escc_alias;
+
+    bool add_qfb; /* Whether to add a paravirtualized video card */
+    bool unplug_dafb; /* Whether to unplug the built-in DAFB video card */
 };
 
 #define TYPE_Q800_MACHINE MACHINE_TYPE_NAME("q800")

@@ -2432,6 +2432,12 @@ F: hw/usb/canokey.c
 F: hw/usb/canokey.h
 F: docs/system/devices/canokey.rst
 
+mac-qfb
+M: Solra Bizna <solra@bizna.name>
+S: Odd Fixes
+F: hw/m68k/mac_qfb.c
+F: include/hw/m68k/mac_qfb.h
+
 Subsystems
 ----------
 Overall Audio backends
