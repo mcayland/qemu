@@ -65,41 +65,39 @@
 /* Audio */
 static const char *s_spk = "screamer";
 
-static void pmac_screamer_tx_transfer(DBDMA_io *io)
+static void pmac_screamer_tx_transfer(ScreamerState *s)
 {
-    ScreamerState *s = io->opaque;     
-    
-    SCREAMER_DPRINTF("DMA TX transfer: addr %" HWADDR_PRIx
-                     " len: %x  bpos: %d\n", io->addr, io->len, s->bpos);
-       
-    dma_memory_read(&address_space_memory, io->addr, &s->buf[s->bpos], io->len,
+    DBDMA_io *io = &s->io;
+    int samples;
+
+    samples = MIN(io->len >> s->shift, s->samples - s->wpos);
+    dma_memory_read(&address_space_memory, io->addr,
+                    &s->mixbuf[s->wpos << s->shift], samples << s->shift,
                     MEMTXATTRS_UNSPECIFIED);
-    
-    s->bpos += io->len;
-    
-    /* Indicate success */
-    io->len = 0;
-    
-    /* Finish */
-    io->dma_end(io);
+
+    io->addr += (samples << s->shift);
+    io->len -= (samples << s->shift);
+    s->wpos += samples;
+
+    /* Continue DBDMA if we have completed the transfer, otherwise defer */
+    if (io->len == 0) {
+        io->dma_end(io);
+    }
 }
 
 static void pmac_screamer_tx(DBDMA_io *io)
 {
     ScreamerState *s = io->opaque;
-    
-    if (s->bpos + io->len > SCREAMER_BUFFER_SIZE) {
-        /* Not enough space in the buffer, so defer IRQ */
-        memcpy(&s->io, io, sizeof(DBDMA_io));
 
-        SCREAMER_DPRINTF("DMA TX defer interrupt!\n");
-        return;
-    }
-    
-    s->io.addr = 0;
-    s->io.len = 0;
-    
-    pmac_screamer_tx_transfer(io);
+    SCREAMER_DPRINTF("DMA TX transfer: addr %" HWADDR_PRIx
+                     " len: %x\n", io->addr, io->len);
+
+    memcpy(&s->io, io, sizeof(DBDMA_io));
+    //if (s->wpos + (s->io.len >> s->shift) > s->samples) {
+    //    return;
+    //}
+
+    pmac_screamer_tx_transfer(s);
 }
 
 static void pmac_screamer_tx_flush(DBDMA_io *io)
@@ -166,28 +164,49 @@ void macio_screamer_register_dma(ScreamerState *s, void *dbdma, int txchannel, i
                            pmac_screamer_rx, pmac_screamer_rx_flush, s);
 }
 
-static void screamerspk_callback(void *opaque, int avail)
+static void screamerspk_callback(void *opaque, int free_b)
 {
     ScreamerState *s = opaque;
-    int n, len;
+    DBDMA_io *io = &s->io;
+    int samples, generated;
 
-    if (s->bpos) {
-        if (s->ppos < s->bpos) {
-            n = MIN(s->bpos - s->ppos, (unsigned int)avail);
-            SCREAMER_DPRINTF("########### AUDIO WRITE! %d / %d - %d\n", s->ppos, s->bpos, n);
-            len = AUD_write(s->voice, &s->buf[s->ppos], n);
-            s->ppos += len;
-            return;
-        }
+    if (free_b == 0 || (s->wpos - s->rpos) == 0) {
+        return;
     }
-    
-    if (s->io.len) {
-        /* Deferred IRQ */
-        s->bpos = 0;
-        s->ppos = 0;
 
-        SCREAMER_DPRINTF("Processing deferred buffer\n");
-        pmac_screamer_tx_transfer(&s->io);
+    samples = MIN(s->samples, free_b >> s->shift);
+    generated = MIN(samples, s->wpos - s->rpos);
+
+    AUD_write(s->voice, s->mixbuf + (uintptr_t)(s->rpos << s->shift),
+              generated << s->shift);
+
+    s->rpos += generated;
+    if (s->rpos < s->wpos) {
+        return;
+    }
+
+    s->wpos = 0;
+    s->rpos = 0;
+
+    if (io->len) {
+        DBDMA_channel *ch = io->channel;
+        bool channel_active = (ch->regs[DBDMA_STATUS] & RUN);
+
+        SCREAMER_DPRINTF("Continue deferred transfer\n");
+
+        /* Disable channel so we only complete the current transfer */
+        ch->regs[DBDMA_STATUS] &= ~RUN;
+
+        /* Perform deferred transfer */
+        pmac_screamer_tx_transfer(s);
+
+        /* Re-enable channel */
+        if (channel_active) {
+            ch->regs[DBDMA_STATUS] |= RUN;
+        }
+
+        /* Kick channel to continue */
+        DBDMA_kick(container_of(ch, DBDMAState, channels[ch->channel]));
     }
 }
 
@@ -201,6 +220,10 @@ static void screamer_update_settings(ScreamerState *s)
         error_report("Could not open voice");
         exit(1);
     }
+
+    s->shift = 1;
+    s->samples = AUD_get_buffer_size_out(s->voice) >> s->shift;
+    s->mixbuf = g_malloc0(s->samples << s->shift);
 
     AUD_set_active_out(s->voice, true);
 }
@@ -224,12 +247,13 @@ static void screamer_reset(DeviceState *dev)
     
     memset(s->regs, 0, sizeof(s->regs));
     memset(s->codec_ctrl_regs, 0, sizeof(s->codec_ctrl_regs));
+    memset(&s->io, 0, sizeof(DBDMA_io));
 
     s->rate = 44100;
+    screamer_update_settings(s);
+
     s->bpos = 0;
     s->ppos = 0;
-
-    screamer_update_settings(s);
 
     return;
 }
@@ -241,6 +265,9 @@ static void screamer_realizefn(DeviceState *dev, Error **errp)
     if (!AUD_backend_check(&s->be, errp)) {
         return;
     }
+
+    s->rate = 44100;
+    screamer_update_settings(s);
 }
 
 static void screamer_control_write(ScreamerState *s, uint32_t val)
@@ -283,7 +310,7 @@ static void screamer_control_write(ScreamerState *s, uint32_t val)
 
 static void screamer_codec_write(ScreamerState *s, hwaddr addr, uint64_t val)
 {
-    SCREAMER_DPRINTF("%s: addr " HWADDR_PRIx " val %" PRIx64 "\n", __func__, addr, val);
+    //SCREAMER_DPRINTF("%s: addr " HWADDR_PRIx " val %" PRIx64 "\n", __func__, addr, val);
 
     switch (addr) {
     case 0x1:

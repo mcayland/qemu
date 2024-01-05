@@ -48,7 +48,13 @@ struct ScreamerState {
 
     AudioBackend *be;
     SWVoiceOut *voice;
-    uint8_t  buf[SCREAMER_BUFFER_SIZE];
+    uint8_t *mixbuf;
+    int samples;
+    int shift;
+
+    uint32_t wpos;
+    uint32_t rpos;
+
     uint32_t bpos;
     uint32_t ppos;
     uint32_t rate;
