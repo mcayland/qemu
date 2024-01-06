@@ -75,12 +75,15 @@ static void pmac_screamer_tx_transfer(ScreamerState *s)
                     &s->mixbuf[s->wpos << s->shift], samples << s->shift,
                     MEMTXATTRS_UNSPECIFIED);
 
+    SCREAMER_DPRINTF("DMA actually transferred 0x%x, wpos is %d\n", samples << s->shift, s->wpos);
+
     io->addr += (samples << s->shift);
     io->len -= (samples << s->shift);
     s->wpos += samples;
 
     /* Continue DBDMA if we have completed the transfer, otherwise defer */
     if (io->len == 0) {
+        SCREAMER_DPRINTF("-> End of transfer\n");
         io->dma_end(io);
     }
 }
@@ -107,7 +110,7 @@ static void pmac_screamer_tx_flush(DBDMA_io *io)
     uint16_t cmd;
 
     SCREAMER_DPRINTF("DMA TX flush!\n");
-
+#if 0
     cmd = le16_to_cpu(current->command) & COMMAND_MASK;
     if (cmd == OUTPUT_MORE || cmd == OUTPUT_LAST ||
         cmd == INPUT_MORE || cmd == INPUT_LAST) {
@@ -118,6 +121,20 @@ static void pmac_screamer_tx_flush(DBDMA_io *io)
                          &ch->current, sizeof(dbdma_cmd),
                          MEMTXATTRS_UNSPECIFIED);
     }
+#endif
+
+    ch->io.processing = false;
+
+    cmd = le16_to_cpu(current->command) & COMMAND_MASK;
+    if (cmd == INPUT_MORE || cmd == INPUT_LAST) {
+        current->xfer_status = cpu_to_le16(ch->regs[DBDMA_STATUS]);
+        current->res_count = cpu_to_le16(io->len);
+
+            dma_memory_write(&address_space_memory, ch->regs[DBDMA_CMDPTR_LO],
+                         &ch->current, sizeof(dbdma_cmd),
+                         MEMTXATTRS_UNSPECIFIED);
+    }
+
 }
 
 static void pmac_screamer_rx(DBDMA_io *io)
@@ -125,12 +142,11 @@ static void pmac_screamer_rx(DBDMA_io *io)
     SCREAMER_DPRINTF("DMA RX transfer: addr %" HWADDR_PRIx
                      " len: %x\n", io->addr, io->len);
 
-    ScreamerState *s = io->opaque;
-    DBDMAState *dbs = s->dbdma;
-    DBDMA_channel *ch = &dbs->channels[0x12];
+    //ScreamerState *s = io->opaque;
+    DBDMA_channel *ch = io->channel;
         
     /* FIXME: stop channel after updating with status to stop MacOS 9 freezing */
-    ch->regs[DBDMA_STATUS] = 0x0;
+    ch->regs[DBDMA_STATUS] &= ~RUN;
 
     io->dma_end(io);
 }
@@ -142,10 +158,9 @@ static void pmac_screamer_rx_flush(DBDMA_io *io)
     uint16_t cmd;
 
     SCREAMER_DPRINTF("DMA RX flush!\n");
-
+#if 1
     cmd = le16_to_cpu(current->command) & COMMAND_MASK;
-    if (cmd == OUTPUT_MORE || cmd == OUTPUT_LAST ||
-        cmd == INPUT_MORE || cmd == INPUT_LAST) {
+    if (cmd == INPUT_MORE || cmd == INPUT_LAST) {
         current->xfer_status = cpu_to_le16(ch->regs[DBDMA_STATUS]);
         current->res_count = cpu_to_le16(io->len);
 
@@ -153,6 +168,7 @@ static void pmac_screamer_rx_flush(DBDMA_io *io)
                          &ch->current, sizeof(dbdma_cmd),
                          MEMTXATTRS_UNSPECIFIED);
     }
+#endif
 }
 
 void macio_screamer_register_dma(ScreamerState *s, void *dbdma, int txchannel, int rxchannel)
@@ -170,7 +186,11 @@ static void screamerspk_callback(void *opaque, int free_b)
     DBDMA_io *io = &s->io;
     int samples, generated;
 
-    if (free_b == 0 || (s->wpos - s->rpos) == 0) {
+    if (free_b == 0) {
+        return;
+    }
+
+    if (s->wpos - s->rpos == 0) {
         return;
     }
 
@@ -180,6 +200,9 @@ static void screamerspk_callback(void *opaque, int free_b)
     AUD_write(s->voice, s->mixbuf + (uintptr_t)(s->rpos << s->shift),
               generated << s->shift);
 
+    SCREAMER_DPRINTF("  - generated %d, wpos %d, rpos %d\n", generated, s->wpos, s->rpos);
+    
+    s->regs[FRAME_CNT_REG] += generated;
     s->rpos += generated;
     if (s->rpos < s->wpos) {
         return;
@@ -190,7 +213,7 @@ static void screamerspk_callback(void *opaque, int free_b)
 
     if (io->len) {
         DBDMA_channel *ch = io->channel;
-        bool channel_active = (ch->regs[DBDMA_STATUS] & RUN);
+        uint32_t status = ch->regs[DBDMA_STATUS];
 
         SCREAMER_DPRINTF("Continue deferred transfer\n");
 
@@ -201,9 +224,7 @@ static void screamerspk_callback(void *opaque, int free_b)
         pmac_screamer_tx_transfer(s);
 
         /* Re-enable channel */
-        if (channel_active) {
-            ch->regs[DBDMA_STATUS] |= RUN;
-        }
+        ch->regs[DBDMA_STATUS] = status;
 
         /* Kick channel to continue */
         DBDMA_kick(container_of(ch, DBDMAState, channels[ch->channel]));
@@ -221,7 +242,7 @@ static void screamer_update_settings(ScreamerState *s)
         exit(1);
     }
 
-    s->shift = 1;
+    s->shift = 2;
     s->samples = AUD_get_buffer_size_out(s->voice) >> s->shift;
     s->mixbuf = g_malloc0(s->samples << s->shift);
 
