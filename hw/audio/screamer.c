@@ -234,7 +234,7 @@ static void screamerspk_callback(void *opaque, int free_b)
 static void screamer_update_settings(ScreamerState *s)
 {
     struct audsettings as = { s->rate, 2, AUDIO_FORMAT_S16,
-        s->regs[BYTE_SWAP_REG] ? 0 : 1 };
+        1 };
 
     s->voice = AUD_open_out(s->be, s->voice, s_spk, s, screamerspk_callback, &as);
     if (!s->voice) {
