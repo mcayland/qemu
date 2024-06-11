@@ -1,2 +1,7 @@
 config NUBUS
     bool
+
+config NUBUS_VGA
+    bool
+    depends on NUBUS
+    select VGA

@@ -34,6 +34,7 @@ config Q800
     select DJMEMC
     select IOSB
     select ASC
+    select NUBUS_VGA
 
 config M68K_VIRT
     bool
