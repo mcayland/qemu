@@ -1026,16 +1026,6 @@ void esp_transfer_data(SCSIRequest *req, uint32_t len)
              s->rregs[ESP_RINTR] |= INTR_BS;
              s->rregs[ESP_RSEQ] = SEQ_MO;
              break;
-
-        case CMD_TI | CMD_DMA:
-        case CMD_TI:
-            /*
-             * Bus service interrupt raised because of initial change to
-             * DATA phase
-             */
-            s->rregs[ESP_CMD] = 0;
-            s->rregs[ESP_RINTR] |= INTR_BS;
-            break;
         }
 
         esp_raise_irq(s);
