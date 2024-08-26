@@ -14,6 +14,12 @@ typedef void (*ESPDMAMemoryReadWriteFunc)(void *opaque, uint8_t *buf, int len);
 #define ESP_FIFO_SZ 16
 #define ESP_CMDFIFO_SZ 32
 
+enum ESPASCMode {
+    ESP_ASC_MODE_DIS = 0,    /* Disconnected */
+    ESP_ASC_MODE_INI = 1,    /* Initiator */
+    ESP_ASC_MODE_TGT = 2     /* Target */
+};
+
 #define TYPE_ESP "esp"
 OBJECT_DECLARE_SIMPLE_TYPE(ESPState, ESP)
 
@@ -38,6 +44,7 @@ struct ESPState {
     uint8_t cmdfifo_cdb_offset;
     uint8_t lun;
     uint32_t do_cmd;
+    uint8_t asc_mode;
 
     bool data_ready;
     int dma_enabled;
@@ -138,6 +145,7 @@ struct SysBusESPState {
 #define INTR_FC 0x08
 #define INTR_BS 0x10
 #define INTR_DC 0x20
+#define INTR_IL 0x40
 #define INTR_RST 0x80
 
 #define SEQ_0 0x0
